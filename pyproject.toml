@@ -3,7 +3,7 @@ name = "cryptosentinel"
 version = "0.1.0"
 description = "AI-Powered Crypto Trading Bot & Analytics Platform"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 license = { text = "MIT" }
 authors = [{ name = "BlueNode" }]
 
@@ -57,7 +57,7 @@ dev = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM"]
@@ -71,6 +71,6 @@ testpaths = ["tests"]
 addopts = "-v --cov=src --cov-report=term-missing"
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 warn_return_any = true
 warn_unused_configs = true
