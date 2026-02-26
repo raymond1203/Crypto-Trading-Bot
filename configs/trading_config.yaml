@@ -1,0 +1,35 @@
+# CryptoSentinel Trading Configuration
+# configs/trading_config.yaml
+
+trading:
+  symbol: "BTC/USDT"
+  exchange: "binance"
+  mode: "backtest"           # backtest | paper | live
+
+backtest:
+  initial_capital: 10000.0   # USD
+  commission: 0.001          # 0.1% (Binance 기본)
+  slippage: 0.0005           # 0.05%
+  position_size: 0.95        # 자본의 95%
+
+  walk_forward:
+    enabled: true
+    train_window: 5000       # 캔들 수
+    test_window: 1000
+    step: 500
+
+risk_management:
+  max_drawdown: 0.20         # 20% MDD 도달 시 거래 중단
+  max_position_size: 0.95    # 최대 포지션 크기
+  stop_loss: 0.03            # 3% 손절
+  take_profit: 0.06          # 6% 익절
+  trailing_stop: 0.02        # 2% 트레일링 스탑
+  max_daily_trades: 10       # 일일 최대 거래 수
+  cooldown_after_loss: 2     # 손절 후 대기 캔들 수
+
+kpi_targets:
+  sharpe_ratio: 1.5
+  max_drawdown: -0.20
+  win_rate: 0.55
+  profit_factor: 1.5
+  calmar_ratio: 1.0
