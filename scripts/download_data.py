@@ -1,12 +1,16 @@
 """BTC/USDT OHLCV 데이터 다운로드 스크립트.
 
 Usage:
-    python scripts/download_data.py --symbol BTC/USDT --timeframes 1h 4h 1d --since 2024-01-01 --output data/raw/
+    python -m scripts.download_data --symbol BTC/USDT --timeframes 1h 4h 1d --since 2024-01-01 --output data/raw/
 """
 
 import argparse
+import sys
 from datetime import datetime
 from pathlib import Path
+
+# 프로젝트 루트를 sys.path에 추가하여 직접 실행도 지원
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.data.collector import fetch_ohlcv, save_to_parquet, validate_data
 
