@@ -36,19 +36,42 @@ train-xgboost:
 	python -m src.models.trainer \
 		--model xgboost \
 		--config configs/model_config.yaml \
-		--data data/processed/btc_usdt_features_1h.parquet
+		--data data/processed
 	@echo "✅ XGBoost training complete!"
 
 train-lstm:
 	python -m src.models.trainer \
 		--model lstm \
 		--config configs/model_config.yaml \
-		--data data/processed/btc_usdt_features_1h.parquet
+		--data data/processed
 	@echo "✅ LSTM training complete!"
 
 train: train-xgboost train-lstm
 	python -m src.models.ensemble --train
 	@echo "✅ All models trained!"
+
+tune-xgboost:
+	python -m src.models.trainer \
+		--model xgboost \
+		--mode tune \
+		--config configs/model_config.yaml \
+		--data data/processed \
+		--n-trials 50 \
+		--save-config
+	@echo "✅ XGBoost tuning complete!"
+
+tune-lstm:
+	python -m src.models.trainer \
+		--model lstm \
+		--mode tune \
+		--config configs/model_config.yaml \
+		--data data/processed \
+		--n-trials 30 \
+		--save-config
+	@echo "✅ LSTM tuning complete!"
+
+tune: tune-xgboost tune-lstm
+	@echo "✅ All tuning complete!"
 
 # ============================================================
 # Backtesting
