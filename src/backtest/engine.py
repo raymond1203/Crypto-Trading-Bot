@@ -93,6 +93,15 @@ class BacktestEngine:
 
         config = config or {}
         self.config: dict = {**self.DEFAULT_PARAMS, **config}
+
+        ps = self.config["position_size"]
+        comm = self.config["commission"]
+        if ps * (1 + comm) > 1.0:
+            raise ValueError(
+                f"position_size({ps}) × (1 + commission({comm})) = {ps * (1 + comm):.4f} > 1.0 — "
+                f"매수 시 capital이 음수가 됩니다."
+            )
+
         logger.info(f"BacktestEngine 초기화: {self.config}")
 
     @staticmethod

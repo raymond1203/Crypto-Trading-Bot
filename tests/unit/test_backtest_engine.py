@@ -86,6 +86,16 @@ class TestBacktestEngineInit:
         assert engine.config["initial_capital"] == 20000.0
         assert engine.config["commission"] == 0.002
 
+    def test_invalid_position_size_raises(self) -> None:
+        """position_size × (1+commission) > 1이면 ValueError가 발생해야 한다."""
+        with pytest.raises(ValueError, match="capital이 음수"):
+            BacktestEngine(config={"position_size": 1.0, "commission": 0.01})
+
+    def test_boundary_position_size_ok(self) -> None:
+        """position_size × (1+commission) == 1.0이면 정상 생성되어야 한다."""
+        engine = BacktestEngine(config={"position_size": 1.0, "commission": 0.0})
+        assert engine.config["position_size"] == 1.0
+
 
 # ---------------------------------------------------------------------------
 # Run — 기본 동작
