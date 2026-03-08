@@ -273,3 +273,101 @@ class RiskManager:
             한도 초과 시 True.
         """
         return daily_trades >= max_daily
+
+
+class DynamicPositionSizer:
+    """동적 포지션 사이징.
+
+    ATR 기반 변동성 스케일링 또는 Kelly Criterion으로
+    거래별 최적 포지션 크기를 계산한다.
+
+    Attributes:
+        config: 포지션 사이징 파라미터 딕셔너리.
+    """
+
+    DEFAULT_PARAMS: dict = {
+        "method": "volatility",
+        "target_volatility": 0.02,
+        "base_size": 0.50,
+        "min_size": 0.10,
+        "max_size": 0.95,
+        "kelly_fraction": 0.25,
+    }
+
+    def __init__(self, config: dict | None = None) -> None:
+        """포지션 사이저를 초기화한다.
+
+        Args:
+            config: 포지션 사이징 파라미터 딕셔너리.
+        """
+        config = config or {}
+        self.config: dict = {**self.DEFAULT_PARAMS, **config}
+
+    def compute(
+        self,
+        atr: float,
+        close: float,
+        win_rate: float = 0.5,
+        avg_win: float = 0.03,
+        avg_loss: float = 0.03,
+    ) -> float:
+        """포지션 크기를 계산한다.
+
+        Args:
+            atr: 현재 ATR 값.
+            close: 현재 종가.
+            win_rate: 최근 승률 (Kelly용).
+            avg_win: 평균 수익률 (Kelly용).
+            avg_loss: 평균 손실률 (Kelly용).
+
+        Returns:
+            포지션 크기 (0.10 ~ 0.95).
+        """
+        method = self.config["method"]
+        if method == "volatility":
+            size = self._volatility_sizing(atr, close)
+        elif method == "kelly":
+            size = self._kelly_sizing(win_rate, avg_win, avg_loss)
+        else:
+            size = self.config["base_size"]
+
+        return max(self.config["min_size"], min(self.config["max_size"], size))
+
+    def _volatility_sizing(self, atr: float, close: float) -> float:
+        """ATR 기반 변동성 스케일링 포지션 크기를 계산한다.
+
+        Args:
+            atr: 현재 ATR 값.
+            close: 현재 종가.
+
+        Returns:
+            스케일링된 포지션 크기.
+        """
+        if close == 0 or atr <= 0:
+            return self.config["base_size"]
+
+        current_vol = atr / close
+        target_vol = self.config["target_volatility"]
+        return self.config["base_size"] * (target_vol / current_vol)
+
+    def _kelly_sizing(
+        self, win_rate: float, avg_win: float, avg_loss: float
+    ) -> float:
+        """Fractional Kelly Criterion 포지션 크기를 계산한다.
+
+        Args:
+            win_rate: 승률.
+            avg_win: 평균 수익률.
+            avg_loss: 평균 손실률.
+
+        Returns:
+            Kelly 기반 포지션 크기.
+        """
+        if avg_win <= 0:
+            return self.config["min_size"]
+
+        kelly_f = (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win
+        if kelly_f <= 0:
+            return self.config["min_size"]
+
+        return kelly_f * self.config["kelly_fraction"]
