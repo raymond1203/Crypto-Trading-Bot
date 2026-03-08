@@ -198,17 +198,21 @@ def run_pipeline(
     # 5. 이상치 처리
     df = handle_outliers(df)
 
-    # 6. 시계열 분할 (스케일링 전에 분할해야 data leakage 방지)
+    # 6. 원본 OHLCV 보존 (백테스트에서 원본 가격 필요)
+    raw_ohlcv_cols = ["open", "high", "low", "close", "volume"]
+    for col in raw_ohlcv_cols:
+        if col in df.columns:
+            df[f"{col}_raw"] = df[col].copy()
+
+    # 7. 시계열 분할 (스케일링 전에 분할해야 data leakage 방지)
     train, val, test = split_timeseries(df, train_ratio, val_ratio, test_ratio)
 
-    # 7. 스케일링 (train 기준으로 fit, val/test에 transform)
-    exclude = ["target"]
+    # 8. 스케일링 (train 기준으로 fit, val/test에 transform)
+    raw_cols = [f"{c}_raw" for c in raw_ohlcv_cols if f"{c}_raw" in train.columns]
+    exclude = ["target"] + raw_cols
     feature_cols = [c for c in train.columns if c not in exclude]
 
-    if scale_method == "standard":
-        scaler = StandardScaler()
-    else:
-        scaler = MinMaxScaler()
+    scaler = StandardScaler() if scale_method == "standard" else MinMaxScaler()
 
     train = train.copy()
     val = val.copy()
@@ -219,8 +223,9 @@ def run_pipeline(
     test[feature_cols] = scaler.transform(test[feature_cols])
 
     logger.info(f"스케일링 완료: train 기준 fit → val/test transform ({scale_method})")
+    logger.info(f"원본 OHLCV 보존: {raw_cols}")
 
-    # 8. 저장
+    # 9. 저장
     save_to_parquet(train, output_dir / "train.parquet")
     save_to_parquet(val, output_dir / "val.parquet")
     save_to_parquet(test, output_dir / "test.parquet")

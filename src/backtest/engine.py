@@ -136,8 +136,13 @@ class BacktestEngine:
             ValueError: signals 길이가 df와 불일치할 때.
             ValueError: df에 close 컬럼이 없을 때.
         """
-        if "close" not in df.columns:
-            raise ValueError("DataFrame에 'close' 컬럼이 필요합니다.")
+        # 원본 가격 컬럼 우선 사용 (스케일링된 가격으로 시뮬레이션 방지)
+        price_col = "close_raw" if "close_raw" in df.columns else "close"
+        if price_col == "close_raw":
+            logger.info("원본 가격(close_raw) 사용하여 백테스트 실행")
+
+        if "close" not in df.columns and "close_raw" not in df.columns:
+            raise ValueError("DataFrame에 'close' 또는 'close_raw' 컬럼이 필요합니다.")
 
         if isinstance(signals, pd.Series):
             signals = signals.values
@@ -157,7 +162,7 @@ class BacktestEngine:
         trades: list[Trade] = []
         equity: list[float] = []
 
-        close_prices = df["close"].values
+        close_prices = df[price_col].values
         timestamps = df.index
 
         for i in range(len(df)):
@@ -230,7 +235,7 @@ class BacktestEngine:
         metrics = BacktestMetrics.generate_report(
             trades=trades_df,
             equity_curve=equity_curve,
-            prices=df["close"],
+            prices=df[price_col],
             initial_capital=initial_capital,
         )
 
