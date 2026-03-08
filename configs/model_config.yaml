@@ -42,6 +42,17 @@ ensemble:
   method: "logistic_regression"  # meta learner
   weights: null                  # null = 자동 학습
   signal_threshold: 0.25         # Buy/Sell 확률이 이 값 초과 시 신호 생성
+  regime_suppress_sideways: false  # true면 횡보장에서 거래 억제
+  regime_weights:
+    bull:
+      xgboost: 0.6
+      lstm: 0.4
+    bear:
+      xgboost: 0.7
+      lstm: 0.3
+    sideways:
+      xgboost: 0.4
+      lstm: 0.6
 
 sentiment:
   provider: "dual"           # "dual", "crypto", "finbert", "bedrock"
