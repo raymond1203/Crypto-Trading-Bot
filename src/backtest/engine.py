@@ -328,10 +328,11 @@ def run_backtest_cli() -> None:
     xgb_proba = xgb_model.predict_proba(df)
     lstm_proba = lstm_model.predict_proba(df)
 
-    # LSTM 출력은 seq_length만큼 짧으므로 정렬
+    # LSTM 출력은 seq_length만큼 짧으므로 정렬 (윈도우 마지막 시점 기준)
     seq_length = lstm_model.config.get("seq_length", 60)
-    df_aligned = df.iloc[seq_length:]
-    xgb_proba_aligned = xgb_proba[seq_length:]
+    n_lstm = len(lstm_proba)
+    df_aligned = df.iloc[seq_length - 1 : seq_length - 1 + n_lstm]
+    xgb_proba_aligned = xgb_proba[seq_length - 1 : seq_length - 1 + n_lstm]
 
     base_predictions = {"xgboost": xgb_proba_aligned, "lstm": lstm_proba}
     signals = ensemble.predict(base_predictions)
