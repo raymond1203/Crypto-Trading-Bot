@@ -103,6 +103,7 @@ class RiskManager:
         max_drawdown = self.config["max_drawdown"]
         max_daily_trades = self.config["max_daily_trades"]
         cooldown_after_loss = self.config["cooldown_after_loss"]
+        position_ratio = self.config["max_position_size"]
 
         in_position = False
         entry_price = 0.0
@@ -132,25 +133,29 @@ class RiskManager:
                     output[i] = -1
                     in_position = False
                     cooldown_remaining = cooldown_after_loss
-                    equity = equity * (price / entry_price)
+                    pnl_pct = price / entry_price - 1.0
+                    equity = equity * (1.0 + position_ratio * pnl_pct)
                     daily_trades += 1
                 elif self._check_take_profit(entry_price, price, take_profit):
                     output[i] = -1
                     in_position = False
-                    equity = equity * (price / entry_price)
+                    pnl_pct = price / entry_price - 1.0
+                    equity = equity * (1.0 + position_ratio * pnl_pct)
                     daily_trades += 1
                 elif self._check_trailing_stop(peak_price, price, trailing_stop):
                     output[i] = -1
                     in_position = False
                     cooldown_remaining = cooldown_after_loss
-                    equity = equity * (price / entry_price)
+                    pnl_pct = price / entry_price - 1.0
+                    equity = equity * (1.0 + position_ratio * pnl_pct)
                     daily_trades += 1
                 else:
                     peak_price = max(peak_price, price)
                     if signal == -1:
                         output[i] = -1
                         in_position = False
-                        equity = equity * (price / entry_price)
+                        pnl_pct = price / entry_price - 1.0
+                        equity = equity * (1.0 + position_ratio * pnl_pct)
                         daily_trades += 1
                     else:
                         output[i] = 0
