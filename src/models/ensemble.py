@@ -14,6 +14,7 @@ import yaml
 from loguru import logger
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
+from sklearn.model_selection import KFold
 
 _LABEL_NAMES = ["Sell (-1)", "Hold (0)", "Buy (1)"]
 
@@ -146,10 +147,36 @@ class EnsembleModel:
         y_true: np.ndarray,
         sentiment_scores: np.ndarray | None,
     ) -> dict:
-        """LogisticRegression 메타 러너를 학습한다."""
+        """LogisticRegression 메타 러너를 out-of-fold 방식으로 학습한다.
+
+        K-fold cross-validation으로 OOF 예측을 생성하여 과적합을 방지하고,
+        최종 메타 모델은 전체 데이터로 학습한다.
+        """
         x = self._build_meta_features(base_predictions, sentiment_scores)
         self._n_meta_features = x.shape[1]
 
+        n_folds = self.config.get("n_folds", 5)
+
+        # Out-of-fold cross-validation
+        oof_accuracy = None
+        if n_folds >= 2 and len(y_true) >= n_folds:
+            kf = KFold(n_splits=n_folds, shuffle=False)
+            oof_preds = np.zeros(len(y_true), dtype=int)
+
+            for train_idx, val_idx in kf.split(x):
+                fold_model = LogisticRegression(
+                    solver="lbfgs",
+                    max_iter=1000,
+                    random_state=self._seed,
+                    C=1.0,
+                )
+                fold_model.fit(x[train_idx], y_true[train_idx])
+                oof_preds[val_idx] = fold_model.predict(x[val_idx])
+
+            oof_accuracy = accuracy_score(y_true, oof_preds)
+            logger.info(f"OOF accuracy ({n_folds}-fold): {oof_accuracy:.4f}")
+
+        # 최종 메타 모델: 전체 데이터로 학습
         self.meta_model = LogisticRegression(
             solver="lbfgs",
             max_iter=1000,
@@ -159,18 +186,23 @@ class EnsembleModel:
         self.meta_model.fit(x, y_true)
 
         train_preds = self.meta_model.predict(x)
-        accuracy = accuracy_score(y_true, train_preds)
+        in_sample_accuracy = accuracy_score(y_true, train_preds)
         contributions = self._compute_contributions()
 
-        logger.info(f"메타 모델 학습 완료 (LogisticRegression): train_accuracy={accuracy:.4f}")
+        logger.info(f"메타 모델 학습 완료 (LogisticRegression): train_accuracy={in_sample_accuracy:.4f}")
         logger.info(f"모델별 기여도: {contributions}")
 
-        return {
+        result: dict = {
             "method": self.method,
-            "train_accuracy": accuracy,
+            "train_accuracy": in_sample_accuracy,
             "n_meta_features": self._n_meta_features,
             "contributions": contributions,
+            "n_folds": n_folds,
         }
+        if oof_accuracy is not None:
+            result["oof_accuracy"] = oof_accuracy
+
+        return result
 
     def _train_weighted(
         self,
