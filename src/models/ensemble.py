@@ -627,3 +627,61 @@ class EnsembleModel:
 
         logger.info(f"앙상블 모델 로드 완료: {model_dir} ({instance.method})")
         return instance
+
+
+def train_from_cli() -> None:
+    """CLI 엔트리포인트: 앙상블 메타 모델을 학습한다.
+
+    XGBoost, LSTM 모델의 validation set 예측을 결합하여
+    메타 러너를 학습하고 저장한다.
+    """
+    import argparse
+
+    from src.data.collector import load_from_parquet
+    from src.models.lstm_model import LSTMSignalModel
+    from src.models.xgboost_model import XGBoostSignalModel
+
+    parser = argparse.ArgumentParser(description="CryptoSentinel 앙상블 학습")
+    parser.add_argument("--train", action="store_true", help="앙상블 메타 모델 학습")
+    parser.add_argument("--data", default="data/processed", help="데이터 디렉토리")
+    parser.add_argument("--model-dir", default="data/models", help="모델 디렉토리")
+    parser.add_argument("--config", default="configs/model_config.yaml", help="설정 파일 경로")
+    args = parser.parse_args()
+
+    if not args.train:
+        parser.print_help()
+        return
+
+    with open(args.config) as f:
+        model_config = yaml.safe_load(f)
+
+    logger.info("=== 앙상블 메타 모델 학습 시작 ===")
+
+    val_df = load_from_parquet(Path(args.data) / "val.parquet")
+
+    xgb = XGBoostSignalModel.load(args.model_dir)
+    lstm = LSTMSignalModel.load(args.model_dir)
+
+    xgb_proba = xgb.predict_proba(val_df)
+    lstm_proba = lstm.predict_proba(val_df)
+
+    # LSTM 정렬
+    seq_length = lstm.config.get("seq_length", 60)
+    n_lstm = len(lstm_proba)
+    val_aligned = val_df.iloc[seq_length - 1 : seq_length - 1 + n_lstm]
+    xgb_aligned = xgb_proba[seq_length - 1 : seq_length - 1 + n_lstm]
+    y_true = val_aligned["target"].values
+
+    logger.info(f"학습 데이터: {len(y_true)} samples")
+
+    ensemble_config = model_config.get("ensemble", {})
+    ensemble = EnsembleModel(config=ensemble_config)
+    base_preds = {"xgboost": xgb_aligned, "lstm": lstm_proba}
+    result = ensemble.train(base_preds, y_true)
+
+    ensemble.save(args.model_dir)
+    logger.info(f"앙상블 학습 완료: {result}")
+
+
+if __name__ == "__main__":
+    train_from_cli()

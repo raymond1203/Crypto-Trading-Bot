@@ -90,13 +90,15 @@ class RiskManager:
             ValueError: df에 close 컬럼이 없을 때.
             ValueError: signals 길이가 df와 불일치할 때.
         """
-        if "close" not in df.columns:
-            raise ValueError("DataFrame에 'close' 컬럼이 필요합니다.")
+        if "close" not in df.columns and "close_raw" not in df.columns:
+            raise ValueError("DataFrame에 'close' 또는 'close_raw' 컬럼이 필요합니다.")
 
         if len(signals) != len(df):
             raise ValueError(f"signals 길이({len(signals)})가 df 길이({len(df)})와 불일치합니다.")
 
-        close = df["close"].values
+        # 원본 가격 우선 사용 (스케일링된 가격으로 SL/TP 계산 방지)
+        price_col = "close_raw" if "close_raw" in df.columns else "close"
+        close = df[price_col].values
         output = np.zeros(len(df), dtype=int)
 
         use_atr = self.config["use_atr_stops"]
