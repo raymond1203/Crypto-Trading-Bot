@@ -4,7 +4,7 @@
 general:
   random_seed: 42
   target_horizon: 4          # 예측 기간 (캔들 수)
-  target_threshold: 0.005    # 매수/매도 판단 기준 (0.5%)
+  target_threshold: 0.003    # 매수/매도 판단 기준 (0.3%)
   train_ratio: 0.6
   val_ratio: 0.2
   test_ratio: 0.2
@@ -41,7 +41,7 @@ lstm:
 ensemble:
   method: "logistic_regression"  # meta learner
   weights: null                  # null = 자동 학습
-  signal_threshold: 0.35         # Buy/Sell 확률이 이 값 초과 시 신호 생성
+  signal_threshold: 0.25         # Buy/Sell 확률이 이 값 초과 시 신호 생성
 
 sentiment:
   provider: "dual"           # "dual", "crypto", "finbert", "bedrock"
