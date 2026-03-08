@@ -67,8 +67,13 @@ class MarketRegimeDetector:
     def detect(self, df: pd.DataFrame) -> np.ndarray:
         """마켓 레짐을 감지한다.
 
+        원본 가격(close_raw, high_raw, low_raw)이 있으면 ADX를 재계산하고,
+        없으면 기존 adx 컬럼을 사용한다.
+
         Args:
-            df: ADX 컬럼(`adx`)과 close 컬럼이 포함된 DataFrame.
+            df: close 컬럼이 포함된 DataFrame.
+                원본 가격 컬럼(close_raw, high_raw, low_raw)이 있으면 ADX 재계산.
+                없으면 adx 컬럼 필수.
 
         Returns:
             레짐 배열 (BULL=1, SIDEWAYS=0, BEAR=-1).
@@ -76,17 +81,26 @@ class MarketRegimeDetector:
         Raises:
             ValueError: 필수 컬럼이 없을 때.
         """
-        if "adx" not in df.columns:
-            raise ValueError("DataFrame에 'adx' 컬럼이 필요합니다.")
-        if "close" not in df.columns:
-            raise ValueError("DataFrame에 'close' 컬럼이 필요합니다.")
-
         adx_threshold = self.config["adx_trend_threshold"]
         sma_window = self.config["sma_window"]
         slope_window = self.config["sma_slope_window"]
 
-        adx = df["adx"].values
-        close = df["close"].values
+        # 원본 가격이 있으면 ADX를 재계산 (스케일링된 adx는 threshold 비교 불가)
+        has_raw = all(c in df.columns for c in ("close_raw", "high_raw", "low_raw"))
+        if has_raw:
+            adx = self._compute_adx(
+                df["high_raw"].values,
+                df["low_raw"].values,
+                df["close_raw"].values,
+            )
+            close = df["close_raw"].values
+        else:
+            if "adx" not in df.columns:
+                raise ValueError("DataFrame에 'adx' 컬럼이 필요합니다.")
+            if "close" not in df.columns:
+                raise ValueError("DataFrame에 'close' 컬럼이 필요합니다.")
+            adx = df["adx"].values
+            close = df["close"].values
 
         # SMA slope 계산: SMA의 최근 N기간 변화율
         sma = pd.Series(close).rolling(sma_window).mean().values
@@ -114,6 +128,70 @@ class MarketRegimeDetector:
         )
 
         return regimes
+
+    @staticmethod
+    def _compute_adx(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int = 14) -> np.ndarray:
+        """원본 가격 데이터로 ADX를 계산한다.
+
+        Args:
+            high: 고가 배열.
+            low: 저가 배열.
+            close: 종가 배열.
+            period: ADX 기간 (기본 14).
+
+        Returns:
+            ADX 배열 (초기 값은 NaN).
+        """
+        n = len(close)
+        tr = np.zeros(n)
+        plus_dm = np.zeros(n)
+        minus_dm = np.zeros(n)
+
+        for i in range(1, n):
+            h_diff = high[i] - high[i - 1]
+            l_diff = low[i - 1] - low[i]
+            tr[i] = max(high[i] - low[i], abs(high[i] - close[i - 1]), abs(low[i] - close[i - 1]))
+            plus_dm[i] = h_diff if h_diff > l_diff and h_diff > 0 else 0.0
+            minus_dm[i] = l_diff if l_diff > h_diff and l_diff > 0 else 0.0
+
+        # Wilder smoothing
+        atr = np.full(n, np.nan)
+        plus_di = np.full(n, np.nan)
+        minus_di = np.full(n, np.nan)
+
+        atr[period] = np.mean(tr[1 : period + 1])
+        sm_plus = np.mean(plus_dm[1 : period + 1])
+        sm_minus = np.mean(minus_dm[1 : period + 1])
+
+        if atr[period] != 0:
+            plus_di[period] = 100 * sm_plus / atr[period]
+            minus_di[period] = 100 * sm_minus / atr[period]
+
+        for i in range(period + 1, n):
+            atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period
+            sm_plus = (sm_plus * (period - 1) + plus_dm[i]) / period
+            sm_minus = (sm_minus * (period - 1) + minus_dm[i]) / period
+            if atr[i] != 0:
+                plus_di[i] = 100 * sm_plus / atr[i]
+                minus_di[i] = 100 * sm_minus / atr[i]
+
+        dx = np.full(n, np.nan)
+        for i in range(period, n):
+            if not np.isnan(plus_di[i]) and not np.isnan(minus_di[i]):
+                di_sum = plus_di[i] + minus_di[i]
+                dx[i] = 100 * abs(plus_di[i] - minus_di[i]) / di_sum if di_sum != 0 else 0.0
+
+        adx = np.full(n, np.nan)
+        start = 2 * period
+        if start < n:
+            valid_dx = [dx[i] for i in range(period, start + 1) if not np.isnan(dx[i])]
+            if valid_dx:
+                adx[start] = np.mean(valid_dx)
+                for i in range(start + 1, n):
+                    if not np.isnan(dx[i]) and not np.isnan(adx[i - 1]):
+                        adx[i] = (adx[i - 1] * (period - 1) + dx[i]) / period
+
+        return adx
 
 
 def add_regime_features(

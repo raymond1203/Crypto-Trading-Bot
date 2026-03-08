@@ -297,7 +297,12 @@ def run_backtest_cli() -> None:
     parser.add_argument(
         "--config",
         default="configs/trading_config.yaml",
-        help="설정 파일 경로",
+        help="트레이딩 설정 파일 경로",
+    )
+    parser.add_argument(
+        "--model-config",
+        default="configs/model_config.yaml",
+        help="모델 설정 파일 경로",
     )
     parser.add_argument(
         "--data",
@@ -320,6 +325,12 @@ def run_backtest_cli() -> None:
     from src.models.ensemble import EnsembleModel
     from src.models.lstm_model import LSTMSignalModel
     from src.models.xgboost_model import XGBoostSignalModel
+    from src.strategy.regime import MarketRegimeDetector
+    from src.strategy.risk import RiskManager
+
+    # 모델 설정 로드
+    with open(args.model_config) as f:
+        model_config = yaml.safe_load(f)
 
     logger.info(f"데이터 로드: {args.data}")
     df = load_from_parquet(args.data)
@@ -339,8 +350,30 @@ def run_backtest_cli() -> None:
     df_aligned = df.iloc[seq_length - 1 : seq_length - 1 + n_lstm]
     xgb_proba_aligned = xgb_proba[seq_length - 1 : seq_length - 1 + n_lstm]
 
+    # 마켓 레짐 감지
+    regime_config = model_config.get("regime", {})
+    detector = MarketRegimeDetector(config=regime_config)
+    regime = detector.detect(df_aligned)
+    logger.info("마켓 레짐 감지 완료")
+
+    # signal_threshold 적용 + 레짐 가중치
+    ensemble_config = model_config.get("ensemble", {})
+    signal_threshold = ensemble_config.get("signal_threshold")
+
     base_predictions = {"xgboost": xgb_proba_aligned, "lstm": lstm_proba}
-    signals = ensemble.predict(base_predictions)
+    signals = ensemble.predict(
+        base_predictions,
+        signal_threshold=signal_threshold,
+        regime=regime,
+    )
+
+    # RiskManager 적용
+    risk_manager = RiskManager(config_path=args.config)
+    with open(args.config) as f:
+        trading_config = yaml.safe_load(f)
+    initial_capital = trading_config.get("backtest", {}).get("initial_capital", 10000.0)
+    signals = risk_manager.process_signals(df_aligned, signals, initial_capital=initial_capital)
+    logger.info("리스크 관리 적용 완료")
 
     logger.info("백테스트 실행")
     engine = BacktestEngine(config_path=args.config)

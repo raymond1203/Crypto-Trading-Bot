@@ -98,7 +98,10 @@ class XGBoostSignalModel:
         Returns:
             학습 이력 딕셔너리.
         """
-        self.feature_names = [c for c in train_df.columns if c != target_col]
+        self.feature_names = [
+            c for c in train_df.columns
+            if c != target_col and not c.endswith("_raw")
+        ]
 
         x_train = train_df[self.feature_names].values
         y_train = _encode_labels(train_df[target_col].values)

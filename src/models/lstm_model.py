@@ -166,6 +166,26 @@ class LSTMSignalModel:
             num_classes=self.config.get("num_classes", 3),
         ).to(self.device)
 
+    # 백테스트 전용 컬럼 (모델 학습에서 제외)
+    _EXCLUDE_SUFFIXES = ("_raw",)
+
+    def _filter_feature_cols(self, columns: list[str], target_col: str = "target") -> list[str]:
+        """모델 학습에 사용할 피처 컬럼만 선택한다.
+
+        `*_raw` 등 백테스트 전용 컬럼과 타겟 컬럼을 제외한다.
+
+        Args:
+            columns: DataFrame 컬럼 목록.
+            target_col: 타겟 컬럼명.
+
+        Returns:
+            필터링된 피처 컬럼 목록.
+        """
+        return [
+            c for c in columns
+            if c != target_col and not any(c.endswith(s) for s in self._EXCLUDE_SUFFIXES)
+        ]
+
     def _make_dataloader(
         self,
         df: pd.DataFrame,
@@ -173,7 +193,7 @@ class LSTMSignalModel:
         shuffle: bool = False,
     ) -> DataLoader:
         """DataFrame에서 DataLoader를 생성한다."""
-        feature_cols = [c for c in df.columns if c != target_col]
+        feature_cols = self._filter_feature_cols(list(df.columns), target_col)
         features = df[feature_cols].values
         targets = _encode_labels(df[target_col].values)
         seq_length = self.config.get("seq_length", 60)
@@ -198,7 +218,7 @@ class LSTMSignalModel:
         Returns:
             학습 이력 {"train_loss": [...], "val_loss": [...]}.
         """
-        self.feature_names = [c for c in train_df.columns if c != target_col]
+        self.feature_names = self._filter_feature_cols(list(train_df.columns), target_col)
         input_size = len(self.feature_names)
         self.model = self._build_model(input_size)
 

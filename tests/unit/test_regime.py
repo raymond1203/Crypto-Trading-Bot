@@ -95,8 +95,8 @@ class TestMarketRegimeDetector:
 
         assert regimes[-1] == MarketRegimeDetector.SIDEWAYS
 
-    def test_missing_adx_raises(self) -> None:
-        """adx 컬럼이 없으면 ValueError가 발생해야 한다."""
+    def test_missing_adx_without_raw_raises(self) -> None:
+        """adx와 raw 컬럼 모두 없으면 ValueError가 발생해야 한다."""
         df = pd.DataFrame({"close": [100.0]}, index=pd.date_range("2024-01-01", periods=1))
         detector = MarketRegimeDetector()
 
@@ -110,6 +110,28 @@ class TestMarketRegimeDetector:
 
         with pytest.raises(ValueError, match="close"):
             detector.detect(df)
+
+    def test_detect_with_raw_columns(self) -> None:
+        """raw 컬럼이 있으면 ADX를 재계산하여 레짐을 감지해야 한다."""
+        n = 60
+        closes = [100.0 + i * 2.0 for i in range(n)]
+        dates = pd.date_range("2024-01-01", periods=n, freq="1h", tz="UTC")
+        df = pd.DataFrame(
+            {
+                "close": [0.0] * n,  # 스케일링된 값 (사용 안 됨)
+                "close_raw": closes,
+                "high_raw": [c * 1.02 for c in closes],
+                "low_raw": [c * 0.98 for c in closes],
+                "adx": [0.0] * n,  # 스케일링된 값 (사용 안 됨)
+            },
+            index=dates,
+        )
+        detector = MarketRegimeDetector()
+        regimes = detector.detect(df)
+
+        assert len(regimes) == n
+        # raw 가격으로 ADX 재계산되므로 후반에 BULL/BEAR 감지 가능
+        assert not all(r == MarketRegimeDetector.SIDEWAYS for r in regimes[-10:])
 
 
 class TestRegimeFeatures:
