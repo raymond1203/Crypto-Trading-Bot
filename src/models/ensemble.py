@@ -301,6 +301,7 @@ class EnsembleModel:
         base_predictions: dict[str, np.ndarray],
         sentiment_scores: np.ndarray | None = None,
         signal_threshold: float | None = None,
+        regime: np.ndarray | None = None,
     ) -> np.ndarray:
         """최종 매매 신호를 예측한다.
 
@@ -310,6 +311,8 @@ class EnsembleModel:
             signal_threshold: 신호 생성 확률 임계값 (None이면 config에서 로드,
                 config에도 없으면 argmax 사용). Buy/Sell 확률이 threshold를
                 초과하면 해당 신호를 생성하고, 둘 다 초과하면 더 높은 쪽을 선택.
+            regime: (n,) 마켓 레짐 배열 (BULL=1, SIDEWAYS=0, BEAR=-1).
+                주어지면 레짐별 가중치로 base model 확률을 조합한다.
 
         Returns:
             예측 레이블 배열 (-1, 0, 1).
@@ -322,6 +325,9 @@ class EnsembleModel:
             signal_threshold = self.config.get("signal_threshold")
 
         if signal_threshold is not None:
+            if regime is not None:
+                return self._regime_predict(base_predictions, signal_threshold, regime)
+
             # threshold 방식: base model 가중 평균 확률에 직접 적용
             # (메타 모델은 Hold로 calibrated되어 threshold가 비효과적)
             contributions = self._compute_contributions()
@@ -334,6 +340,55 @@ class EnsembleModel:
         # argmax: 메타 모델 사용
         proba = self.predict_proba(base_predictions, sentiment_scores)
         return np.array([-1, 0, 1])[proba.argmax(axis=1)]
+
+    def _regime_predict(
+        self,
+        base_predictions: dict[str, np.ndarray],
+        signal_threshold: float,
+        regime: np.ndarray,
+    ) -> np.ndarray:
+        """레짐별 가중치를 적용하여 매매 신호를 생성한다.
+
+        각 bar의 레짐에 따라 다른 가중치로 base model 확률을 조합하고,
+        threshold predict를 적용한다.
+
+        Args:
+            base_predictions: {모델명: (n, 3) 확률 배열}.
+            signal_threshold: 신호 생성 확률 임계값.
+            regime: (n,) 마켓 레짐 배열.
+
+        Returns:
+            예측 레이블 배열 (-1, 0, 1).
+        """
+        regime_weights = self.config.get("regime_weights", {})
+        suppress_sideways = self.config.get("regime_suppress_sideways", False)
+        n_models = len(base_predictions)
+        default_weight = 1.0 / n_models
+
+        # 레짐별 가중치 매핑
+        weight_map = {
+            1: regime_weights.get("bull", {}),    # BULL
+            0: regime_weights.get("sideways", {}),  # SIDEWAYS
+            -1: regime_weights.get("bear", {}),   # BEAR
+        }
+
+        n_samples = next(iter(base_predictions.values())).shape[0]
+        weighted_proba = np.zeros((n_samples, 3))
+
+        for i in range(n_samples):
+            r = int(regime[i])
+            weights = weight_map.get(r, {})
+            for model_name, proba in base_predictions.items():
+                w = weights.get(model_name, default_weight)
+                weighted_proba[i] += w * proba[i]
+
+        signals = self._threshold_predict(weighted_proba, signal_threshold)
+
+        # SIDEWAYS 억제: 횡보장에서 거래하지 않음
+        if suppress_sideways:
+            signals[regime == 0] = 0
+
+        return signals
 
     @staticmethod
     def _threshold_predict(proba: np.ndarray, threshold: float) -> np.ndarray:
