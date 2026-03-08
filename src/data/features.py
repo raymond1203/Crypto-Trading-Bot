@@ -203,16 +203,68 @@ def add_time_features(df: pd.DataFrame, *, use_raw: bool = False) -> pd.DataFram
     return df
 
 
+def select_features(
+    df: pd.DataFrame,
+    *,
+    corr_threshold: float = 0.90,
+    variance_threshold: float = 1e-8,
+    exclude_cols: list[str] | None = None,
+) -> tuple[pd.DataFrame, list[str]]:
+    """상관관계 및 분산 기반 피처 필터링을 수행한다.
+
+    Args:
+        df: 피처가 포함된 DataFrame.
+        corr_threshold: 이 값 이상의 상관관계를 가진 피처 쌍에서 하나를 제거.
+        variance_threshold: 이 값 미만의 분산을 가진 피처 제거.
+        exclude_cols: 필터링에서 제외할 컬럼명 리스트 (OHLCV, target 등).
+
+    Returns:
+        (필터링된 DataFrame, 제거된 피처 이름 리스트).
+    """
+    if exclude_cols is None:
+        exclude_cols = ["open", "high", "low", "close", "volume", "target"]
+
+    feature_cols = [c for c in df.columns if c not in exclude_cols]
+    dropped: list[str] = []
+
+    # 1. 분산 필터링: near-constant 피처 제거
+    variances = df[feature_cols].var()
+    low_var = variances[variances < variance_threshold].index.tolist()
+    if low_var:
+        dropped.extend(low_var)
+        feature_cols = [c for c in feature_cols if c not in low_var]
+        logger.info(f"분산 필터: {len(low_var)}개 피처 제거 {low_var}")
+
+    # 2. 상관관계 필터링: 높은 상관 쌍에서 하나 제거
+    corr_matrix = df[feature_cols].corr().abs()
+    upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+    high_corr = [col for col in upper.columns if any(upper[col] > corr_threshold)]
+    if high_corr:
+        dropped.extend(high_corr)
+        feature_cols = [c for c in feature_cols if c not in high_corr]
+        logger.info(f"상관관계 필터 (>{corr_threshold}): {len(high_corr)}개 피처 제거 {high_corr}")
+
+    keep_cols = exclude_cols + feature_cols
+    keep_cols = [c for c in keep_cols if c in df.columns]
+
+    logger.info(f"피처 선택 완료: {len(df.columns)}개 → {len(keep_cols)}개 (제거: {len(dropped)}개)")
+    return df[keep_cols], dropped
+
+
 def build_features(
     df: pd.DataFrame,
     *,
     use_raw_time: bool = False,
+    apply_selection: bool = False,
+    corr_threshold: float = 0.90,
 ) -> pd.DataFrame:
     """전체 피처 엔지니어링 파이프라인을 실행한다.
 
     Args:
         df: OHLCV DataFrame.
         use_raw_time: True면 raw 시간 피처(hour, day_of_week, month)도 추가.
+        apply_selection: True면 상관관계/분산 기반 피처 선택 적용.
+        corr_threshold: 상관관계 필터링 임계값.
 
     Returns:
         모든 피처가 추가된 DataFrame (NaN 행 제거됨).
@@ -227,6 +279,10 @@ def build_features(
     df = add_time_features(df, use_raw=use_raw_time)
 
     df = df.dropna()
+
+    if apply_selection:
+        df, _ = select_features(df, corr_threshold=corr_threshold)
+
     feature_count = len(df.columns) - 5  # OHLCV 5개 제외
     logger.info(f"피처 생성 완료: {feature_count}개 피처, {initial_len}행 → {len(df)}행 (NaN {initial_len - len(df)}행 제거)")
 

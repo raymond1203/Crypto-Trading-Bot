@@ -16,6 +16,7 @@ from src.data.features import (
     add_volume_features,
     build_features,
     create_target,
+    select_features,
 )
 
 
@@ -222,3 +223,49 @@ class TestCreateTarget:
         hold_ratio_low = (df_low["target"] == 0).mean()
         hold_ratio_high = (df_high["target"] == 0).mean()
         assert hold_ratio_high >= hold_ratio_low
+
+
+class TestSelectFeatures:
+    """select_features 테스트."""
+
+    def test_reduces_feature_count(self, sample_ohlcv: pd.DataFrame) -> None:
+        """상관관계 필터링으로 피처 수가 감소해야 한다."""
+        df = build_features(sample_ohlcv)
+        original_count = len(df.columns)
+        df_selected, dropped = select_features(df, corr_threshold=0.90)
+        assert len(df_selected.columns) < original_count
+        assert len(dropped) > 0
+
+    def test_preserves_ohlcv(self, sample_ohlcv: pd.DataFrame) -> None:
+        """OHLCV 컬럼은 보존되어야 한다."""
+        df = build_features(sample_ohlcv)
+        df_selected, _ = select_features(df)
+        for col in ["open", "high", "low", "close", "volume"]:
+            assert col in df_selected.columns
+
+    def test_no_nan_introduced(self, sample_ohlcv: pd.DataFrame) -> None:
+        """피처 선택 후 NaN이 생기지 않아야 한다."""
+        df = build_features(sample_ohlcv)
+        df_selected, _ = select_features(df)
+        assert df_selected.isna().sum().sum() == 0
+
+    def test_low_variance_filter(self) -> None:
+        """분산이 거의 0인 피처가 제거되어야 한다."""
+        df = pd.DataFrame({
+            "open": [1.0, 2.0, 3.0],
+            "high": [2.0, 3.0, 4.0],
+            "low": [0.5, 1.5, 2.5],
+            "close": [1.5, 2.5, 3.5],
+            "volume": [100.0, 200.0, 300.0],
+            "constant_feat": [1.0, 1.0, 1.0],  # 분산 0
+            "good_feat": [1.0, 5.0, 10.0],
+        })
+        df_selected, dropped = select_features(df, variance_threshold=1e-8)
+        assert "constant_feat" in dropped
+        assert "good_feat" in df_selected.columns
+
+    def test_build_features_with_selection(self, sample_ohlcv: pd.DataFrame) -> None:
+        """build_features에서 apply_selection=True가 작동해야 한다."""
+        df_no_sel = build_features(sample_ohlcv.copy(), apply_selection=False)
+        df_sel = build_features(sample_ohlcv.copy(), apply_selection=True)
+        assert len(df_sel.columns) < len(df_no_sel.columns)
