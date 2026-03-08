@@ -29,6 +29,14 @@ risk_management:
   max_daily_trades: 10       # 일일 최대 거래 수
   cooldown_after_loss: 2     # 손절 후 대기 캔들 수
 
+position_sizing:
+  method: "volatility"          # volatility | kelly | fixed
+  target_volatility: 0.02       # 목표 일일 변동성 (2%)
+  base_size: 0.50               # 기본 포지션 크기
+  min_size: 0.10                # 최소 포지션 크기 (10%)
+  max_size: 0.95                # 최대 포지션 크기 (95%)
+  kelly_fraction: 0.25          # fractional Kelly 비율
+
 kpi_targets:
   sharpe_ratio: 1.5
   max_drawdown: -0.20

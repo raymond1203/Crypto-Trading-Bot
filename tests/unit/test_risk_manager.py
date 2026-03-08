@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 import yaml
 
-from src.strategy.risk import RiskManager
+from src.strategy.risk import DynamicPositionSizer, RiskManager
 
 # ---------------------------------------------------------------------------
 # Helper fixtures
@@ -442,3 +442,76 @@ class TestAtrDynamicStops:
         result = rm.process_signals(df, signals)
         assert result[0] == 1
         assert result[1] == -1  # 고정 SL 3% 발동
+
+
+class TestDynamicPositionSizer:
+    """DynamicPositionSizer 테스트."""
+
+    def test_default_params(self) -> None:
+        """기본 파라미터가 적용되어야 한다."""
+        sizer = DynamicPositionSizer()
+        assert sizer.config["method"] == "volatility"
+        assert sizer.config["target_volatility"] == 0.02
+        assert sizer.config["kelly_fraction"] == 0.25
+
+    def test_volatility_high_atr_reduces_size(self) -> None:
+        """높은 ATR(높은 변동성)이면 포지션이 축소되어야 한다."""
+        sizer = DynamicPositionSizer(config={
+            "method": "volatility",
+            "base_size": 0.50,
+            "target_volatility": 0.02,
+        })
+        # ATR=2000, close=100000 → current_vol=0.02 → size=0.50 (정확히 target)
+        size_normal = sizer.compute(atr=2000.0, close=100000.0)
+        # ATR=4000 → current_vol=0.04 → size=0.25 (절반)
+        size_high = sizer.compute(atr=4000.0, close=100000.0)
+        assert size_high < size_normal
+
+    def test_volatility_low_atr_increases_size(self) -> None:
+        """낮은 ATR(낮은 변동성)이면 포지션이 확대되어야 한다."""
+        sizer = DynamicPositionSizer(config={
+            "method": "volatility",
+            "base_size": 0.50,
+            "target_volatility": 0.02,
+        })
+        # ATR=1000 → current_vol=0.01 → size=1.0 → capped at max_size
+        size = sizer.compute(atr=1000.0, close=100000.0)
+        assert size == 0.95  # max_size
+
+    def test_kelly_positive_edge(self) -> None:
+        """양의 엣지가 있으면 Kelly가 양수를 반환해야 한다."""
+        sizer = DynamicPositionSizer(config={
+            "method": "kelly",
+            "kelly_fraction": 0.25,
+        })
+        # WR=0.55, avg_win=0.04, avg_loss=0.03
+        # kelly_f = (0.55*0.04 - 0.45*0.03) / 0.04 = (0.022-0.0135)/0.04 = 0.2125
+        # size = 0.2125 * 0.25 = 0.053 → min_size 0.10
+        size = sizer.compute(atr=0, close=0, win_rate=0.55, avg_win=0.04, avg_loss=0.03)
+        assert size == 0.10  # min_size
+
+    def test_kelly_negative_edge_returns_min(self) -> None:
+        """음의 엣지면 min_size를 반환해야 한다."""
+        sizer = DynamicPositionSizer(config={
+            "method": "kelly",
+            "kelly_fraction": 0.25,
+        })
+        # WR=0.30 → 음의 기대값
+        size = sizer.compute(atr=0, close=0, win_rate=0.30, avg_win=0.02, avg_loss=0.04)
+        assert size == 0.10  # min_size
+
+    def test_size_clamped_to_range(self) -> None:
+        """포지션 크기가 min/max 범위 내에 있어야 한다."""
+        sizer = DynamicPositionSizer(config={
+            "method": "volatility",
+            "base_size": 0.50,
+            "target_volatility": 0.02,
+            "min_size": 0.15,
+            "max_size": 0.80,
+        })
+        # 극단적 ATR → 매우 작은 size
+        size_tiny = sizer.compute(atr=10000.0, close=100000.0)
+        assert size_tiny >= 0.15
+        # 극단적으로 낮은 ATR → 매우 큰 size
+        size_huge = sizer.compute(atr=100.0, close=100000.0)
+        assert size_huge <= 0.80
