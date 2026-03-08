@@ -371,3 +371,54 @@ class TestSaveLoad:
         model = LSTMSignalModel(config=_TEST_CONFIG)
         with pytest.raises(RuntimeError):
             model.save(tmp_path / "model")  # type: ignore[operator]
+
+
+class TestRawColumnFiltering:
+    """raw 컬럼 필터링 테스트."""
+
+    def test_filter_excludes_raw_columns(self) -> None:
+        """_filter_feature_cols가 *_raw 컬럼을 제외해야 한다."""
+        model = LSTMSignalModel(config=_TEST_CONFIG)
+        cols = ["feat_0", "feat_1", "close_raw", "open_raw", "volume_raw", "target"]
+        filtered = model._filter_feature_cols(cols, "target")
+        assert filtered == ["feat_0", "feat_1"]
+
+    def test_train_excludes_raw_from_features(self) -> None:
+        """학습 시 raw 컬럼이 feature_names에 포함되지 않아야 한다."""
+        np.random.seed(42)
+        n = 200
+
+        def _make_df(start: str) -> pd.DataFrame:
+            dates = pd.date_range(start, periods=n, freq="1h", tz="UTC")
+            data = {f"feat_{i}": np.random.randn(n) for i in range(3)}
+            df = pd.DataFrame(data, index=dates)
+            df["close_raw"] = np.random.randn(n) * 70000 + 90000
+            df["volume_raw"] = np.random.randn(n) * 1000 + 5000
+            df["target"] = np.random.choice([-1, 0, 1], size=n)
+            return df
+
+        model = LSTMSignalModel(config=_TEST_CONFIG)
+        model.train(_make_df("2024-01-01"), _make_df("2024-03-01"))
+        assert "close_raw" not in model.feature_names
+        assert "volume_raw" not in model.feature_names
+        assert len(model.feature_names) == 3
+
+    def test_predict_with_raw_columns_present(self) -> None:
+        """raw 컬럼이 있는 DataFrame에서도 예측이 정상 동작해야 한다."""
+        np.random.seed(42)
+        n = 200
+
+        def _make_df(start: str) -> pd.DataFrame:
+            dates = pd.date_range(start, periods=n, freq="1h", tz="UTC")
+            data = {f"feat_{i}": np.random.randn(n) for i in range(3)}
+            df = pd.DataFrame(data, index=dates)
+            df["close_raw"] = np.random.randn(n) * 70000 + 90000
+            df["target"] = np.random.choice([-1, 0, 1], size=n)
+            return df
+
+        train = _make_df("2024-01-01")
+        val = _make_df("2024-03-01")
+        model = LSTMSignalModel(config=_TEST_CONFIG)
+        model.train(train, val)
+        proba = model.predict_proba(val)
+        assert proba.shape[1] == 3
