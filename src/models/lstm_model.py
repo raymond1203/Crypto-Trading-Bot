@@ -51,7 +51,7 @@ class TimeSeriesDataset(Dataset):
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.features[idx : idx + self.seq_length]
-        y = self.targets[idx + self.seq_length]
+        y = self.targets[idx + self.seq_length - 1]
         return x, y
 
 
@@ -352,7 +352,7 @@ class LSTMSignalModel:
             confusion_matrix를 포함하는 딕셔너리.
         """
         seq_length = self.config.get("seq_length", 60)
-        y_true = df[target_col].values[seq_length:]
+        y_true = df[target_col].values[seq_length - 1 : -1]
         y_pred = self.predict(df, target_col)
 
         # DataLoader 배치 처리로 끝부분이 잘릴 수 있으므로 길이 맞춤
