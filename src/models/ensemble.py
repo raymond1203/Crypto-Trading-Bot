@@ -300,12 +300,16 @@ class EnsembleModel:
         self,
         base_predictions: dict[str, np.ndarray],
         sentiment_scores: np.ndarray | None = None,
+        signal_threshold: float | None = None,
     ) -> np.ndarray:
         """최종 매매 신호를 예측한다.
 
         Args:
             base_predictions: {모델명: (n, 3) 확률 배열}.
             sentiment_scores: (n,) 감성 점수 (선택).
+            signal_threshold: 신호 생성 확률 임계값 (None이면 config에서 로드,
+                config에도 없으면 argmax 사용). Buy/Sell 확률이 threshold를
+                초과하면 해당 신호를 생성하고, 둘 다 초과하면 더 높은 쪽을 선택.
 
         Returns:
             예측 레이블 배열 (-1, 0, 1).
@@ -314,20 +318,50 @@ class EnsembleModel:
             RuntimeError: 모델이 학습되지 않았을 때.
             ValueError: 지원하지 않는 method.
         """
-        if self.method == "logistic_regression":
-            if self.meta_model is None:
-                raise RuntimeError("메타 모델이 학습되지 않았습니다. train()을 먼저 호출하세요.")
-            x = self._build_meta_features(base_predictions, sentiment_scores)
-            return self.meta_model.predict(x)
+        if signal_threshold is None:
+            signal_threshold = self.config.get("signal_threshold")
 
-        elif self.method == "weighted_average":
-            if self.weights is None:
-                raise RuntimeError("가중치가 학습되지 않았습니다. train()을 먼저 호출하세요.")
-            proba = self._compute_weighted_proba(self.weights, base_predictions, sentiment_scores)
-            return np.array([-1, 0, 1])[proba.argmax(axis=1)]
+        if signal_threshold is not None:
+            # threshold 방식: base model 가중 평균 확률에 직접 적용
+            # (메타 모델은 Hold로 calibrated되어 threshold가 비효과적)
+            contributions = self._compute_contributions()
+            weighted_proba = np.zeros_like(next(iter(base_predictions.values())))
+            for model_name, proba in base_predictions.items():
+                weight = contributions.get(model_name, 1.0 / len(base_predictions))
+                weighted_proba += weight * proba
+            return self._threshold_predict(weighted_proba, signal_threshold)
 
-        else:
-            raise ValueError(f"지원하지 않는 method: {self.method}")
+        # argmax: 메타 모델 사용
+        proba = self.predict_proba(base_predictions, sentiment_scores)
+        return np.array([-1, 0, 1])[proba.argmax(axis=1)]
+
+    @staticmethod
+    def _threshold_predict(proba: np.ndarray, threshold: float) -> np.ndarray:
+        """확률 threshold 기반으로 매매 신호를 생성한다.
+
+        Buy/Sell 확률이 threshold를 초과하면 해당 신호를 생성한다.
+        둘 다 초과하면 더 높은 쪽을 선택하고, 둘 다 미만이면 Hold.
+
+        Args:
+            proba: (n, 3) 확률 배열 [Sell, Hold, Buy].
+            threshold: 신호 생성 확률 임계값.
+
+        Returns:
+            예측 레이블 배열 (-1, 0, 1).
+        """
+        sell_proba = proba[:, 0]
+        buy_proba = proba[:, 2]
+
+        signals = np.zeros(len(proba), dtype=int)  # 기본 Hold
+        signals[buy_proba > threshold] = 1
+        signals[sell_proba > threshold] = -1
+
+        # 둘 다 threshold 초과 시 더 높은 쪽
+        both_mask = (buy_proba > threshold) & (sell_proba > threshold)
+        signals[both_mask & (buy_proba >= sell_proba)] = 1
+        signals[both_mask & (sell_proba > buy_proba)] = -1
+
+        return signals
 
     def predict_proba(
         self,

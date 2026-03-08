@@ -41,6 +41,7 @@ lstm:
 ensemble:
   method: "logistic_regression"  # meta learner
   weights: null                  # null = 자동 학습
+  signal_threshold: 0.35         # Buy/Sell 확률이 이 값 초과 시 신호 생성
 
 sentiment:
   provider: "dual"           # "dual", "crypto", "finbert", "bedrock"

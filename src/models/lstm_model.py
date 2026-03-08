@@ -213,7 +213,20 @@ class LSTMSignalModel:
 
         optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-        criterion = nn.CrossEntropyLoss()
+
+        # 클래스 불균형 보정: inverse frequency weighting
+        y_all = train_df[target_col].values.astype(int)
+        # 타겟 레이블 (-1,0,1) → 내부 인덱스 (0,1,2)
+        y_internal = y_all + 1
+        classes, counts = np.unique(y_internal, return_counts=True)
+        n_samples = len(y_internal)
+        n_classes = len(classes)
+        weight_arr = np.ones(3)
+        for c, cnt in zip(classes, counts, strict=True):
+            weight_arr[c] = n_samples / (n_classes * cnt)
+        class_weights = torch.tensor(weight_arr, dtype=torch.float32, device=self.device)
+        logger.info(f"LSTM 클래스 가중치: {dict(zip(['Sell', 'Hold', 'Buy'], weight_arr.tolist(), strict=True))}")
+        criterion = nn.CrossEntropyLoss(weight=class_weights)
 
         best_val_loss = float("inf")
         best_state = None

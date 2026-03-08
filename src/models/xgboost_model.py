@@ -105,10 +105,19 @@ class XGBoostSignalModel:
         x_val = val_df[self.feature_names].values
         y_val = _encode_labels(val_df[target_col].values)
 
+        # 클래스 불균형 보정: inverse frequency weighting
+        classes, counts = np.unique(y_train, return_counts=True)
+        n_samples = len(y_train)
+        n_classes = len(classes)
+        class_weights = {c: n_samples / (n_classes * cnt) for c, cnt in zip(classes, counts, strict=True)}
+        sample_weights = np.array([class_weights[y] for y in y_train])
+        logger.info(f"클래스 가중치 적용: {class_weights}")
+
         self.model = xgb.XGBClassifier(**self.config)
         self.model.fit(
             x_train,
             y_train,
+            sample_weight=sample_weights,
             eval_set=[(x_train, y_train), (x_val, y_val)],
             verbose=False,
         )
