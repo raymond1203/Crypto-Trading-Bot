@@ -65,18 +65,19 @@ class TestInit:
         """기본 파라미터가 적용되어야 한다."""
         rm = RiskManager()
         assert rm.config["stop_loss"] == 0.03
-        assert rm.config["take_profit"] == 0.06
-        assert rm.config["trailing_stop"] == 0.02
+        assert rm.config["take_profit"] == 0.04
+        assert rm.config["trailing_stop"] == 0.03
         assert rm.config["max_drawdown"] == 0.20
         assert rm.config["max_daily_trades"] == 10
         assert rm.config["cooldown_after_loss"] == 2
+        assert rm.config["use_atr_stops"] is False
 
     def test_custom_config(self) -> None:
         """커스텀 설정이 기본값을 오버라이드해야 한다."""
         rm = RiskManager(config={"stop_loss": 0.05, "max_daily_trades": 5})
         assert rm.config["stop_loss"] == 0.05
         assert rm.config["max_daily_trades"] == 5
-        assert rm.config["take_profit"] == 0.06  # 기본값 유지
+        assert rm.config["take_profit"] == 0.04  # 기본값 유지
 
     def test_from_config_file(self, tmp_path: object) -> None:
         """YAML 설정 파일에서 risk_management 섹션을 로드해야 한다."""
@@ -93,7 +94,7 @@ class TestInit:
         rm = RiskManager(config_path=config_path)
         assert rm.config["stop_loss"] == 0.05
         assert rm.config["take_profit"] == 0.10
-        assert rm.config["trailing_stop"] == 0.02  # 기본값 유지
+        assert rm.config["trailing_stop"] == 0.03  # 기본값 유지
 
 
 # ---------------------------------------------------------------------------
@@ -151,9 +152,9 @@ class TestTakeProfit:
     """익절 테스트."""
 
     def test_take_profit_triggers_sell(self, risk_manager: RiskManager) -> None:
-        """가격이 진입가 대비 6% 이상 상승하면 강제 매도해야 한다."""
-        # 100에서 매수 → 106.1로 상승 (6.1% 상승, TP 트리거)
-        closes = [100.0, 103.0, 106.1]
+        """가격이 진입가 대비 4% 이상 상승하면 강제 매도해야 한다."""
+        # 100에서 매수 → 104.1로 상승 (4.1% 상승, TP 트리거)
+        closes = [100.0, 102.0, 104.1]
         df = _make_ohlcv(closes)
         signals = np.array([1, 0, 0])
 
@@ -163,8 +164,8 @@ class TestTakeProfit:
 
     def test_take_profit_not_triggered(self, risk_manager: RiskManager) -> None:
         """가격이 TP 미만으로 상승하면 매도하지 않아야 한다."""
-        # 100에서 매수 → 105로 상승 (5%, TP 미도달)
-        closes = [100.0, 103.0, 105.0]
+        # 100에서 매수 → 103.5로 상승 (3.5%, TP 4% 미도달)
+        closes = [100.0, 102.0, 103.5]
         df = _make_ohlcv(closes)
         signals = np.array([1, 0, 0])
 
@@ -385,3 +386,59 @@ class TestProcessSignals:
 
         with pytest.raises(ValueError, match="불일치"):
             risk_manager.process_signals(df, signals)
+
+
+class TestAtrDynamicStops:
+    """ATR 기반 동적 스탑 테스트."""
+
+    def test_atr_stops_use_atr_values(self) -> None:
+        """use_atr_stops=True이면 ATR 기반으로 스탑이 계산되어야 한다."""
+        rm = RiskManager(config={
+            "use_atr_stops": True,
+            "atr_stop_multiplier": 2.0,
+            "stop_loss": 0.03,
+            "take_profit": 0.04,
+            "trailing_stop": 0.03,
+        })
+        # ATR=1000 → atr_pct=1000/100000=0.01 → SL=0.02, TP=0.04, TS=0.02
+        closes = [100000.0, 100000.0, 97500.0]  # -2.5% drop
+        df = _make_ohlcv(closes)
+        df["atr_14"] = [1000.0, 1000.0, 1000.0]
+        signals = np.array([1, 0, 0])
+
+        result = rm.process_signals(df, signals)
+        # ATR SL = 0.01*2 = 0.02, drop is 2.5% > 2% → 스탑로스 발동
+        assert result[0] == 1
+        assert result[2] == -1
+
+    def test_atr_stops_no_atr_column_falls_back(self) -> None:
+        """atr_14 컬럼이 없으면 고정 스탑으로 폴백해야 한다."""
+        rm = RiskManager(config={
+            "use_atr_stops": True,
+            "atr_stop_multiplier": 2.0,
+            "stop_loss": 0.03,
+            "take_profit": 0.04,
+            "trailing_stop": 0.03,
+        })
+        closes = [100.0, 101.0, 102.0]
+        df = _make_ohlcv(closes)  # atr_14 없음
+        signals = np.array([1, 0, -1])
+
+        result = rm.process_signals(df, signals)
+        assert result[0] == 1  # 고정 스탑으로 정상 작동
+
+    def test_atr_stops_disabled_uses_fixed(self) -> None:
+        """use_atr_stops=False면 고정 스탑을 사용해야 한다."""
+        rm = RiskManager(config={
+            "use_atr_stops": False,
+            "stop_loss": 0.03,
+            "take_profit": 0.04,
+            "trailing_stop": 0.03,
+        })
+        closes = [100.0, 96.5]  # -3.5% drop > SL 3%
+        df = _make_ohlcv(closes)
+        signals = np.array([1, 0])
+
+        result = rm.process_signals(df, signals)
+        assert result[0] == 1
+        assert result[1] == -1  # 고정 SL 3% 발동

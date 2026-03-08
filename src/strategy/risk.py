@@ -25,12 +25,14 @@ class RiskManager:
 
     DEFAULT_PARAMS: dict = {
         "stop_loss": 0.03,
-        "take_profit": 0.06,
-        "trailing_stop": 0.02,
+        "take_profit": 0.04,
+        "trailing_stop": 0.03,
         "max_drawdown": 0.20,
         "max_position_size": 0.95,
         "max_daily_trades": 10,
         "cooldown_after_loss": 2,
+        "use_atr_stops": False,
+        "atr_stop_multiplier": 2.0,
     }
 
     def __init__(
@@ -96,6 +98,15 @@ class RiskManager:
 
         close = df["close"].values
         output = np.zeros(len(df), dtype=int)
+
+        use_atr = self.config["use_atr_stops"]
+        atr_mult = self.config["atr_stop_multiplier"]
+        atr_values: np.ndarray | None = None
+        if use_atr and "atr_14" in df.columns:
+            atr_values = df["atr_14"].values
+        elif use_atr:
+            logger.warning("use_atr_stops=True이지만 atr_14 컬럼 없음, 고정 스탑 사용")
+            use_atr = False
 
         stop_loss = self.config["stop_loss"]
         take_profit = self.config["take_profit"]
@@ -173,6 +184,12 @@ class RiskManager:
                         peak_price = price
                         in_position = True
                         daily_trades += 1
+                        # ATR 기반 동적 스탑 설정
+                        if use_atr and atr_values is not None:
+                            atr_pct = atr_values[i] / price
+                            stop_loss = max(atr_pct * atr_mult, 0.01)
+                            take_profit = max(atr_pct * atr_mult * 2, 0.02)
+                            trailing_stop = max(atr_pct * atr_mult, 0.01)
                 else:
                     output[i] = 0
 
