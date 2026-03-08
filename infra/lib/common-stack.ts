@@ -16,10 +16,11 @@ export class CommonStack extends cdk.Stack {
     super(scope, id, props);
 
     const { envName } = props;
+    const accountSuffix = cdk.Stack.of(this).account.slice(-6);
 
     // S3: 데이터 레이크 버킷
     this.dataBucket = new s3.Bucket(this, "DataBucket", {
-      bucketName: `cryptosentinel-data-${envName}`,
+      bucketName: `cryptosentinel-data-${envName}-${accountSuffix}`,
       removalPolicy:
         envName === "prod"
           ? cdk.RemovalPolicy.RETAIN
@@ -45,7 +46,7 @@ export class CommonStack extends cdk.Stack {
 
     // S3: 모델 아티팩트 버킷
     this.modelBucket = new s3.Bucket(this, "ModelBucket", {
-      bucketName: `cryptosentinel-models-${envName}`,
+      bucketName: `cryptosentinel-models-${envName}-${accountSuffix}`,
       removalPolicy:
         envName === "prod"
           ? cdk.RemovalPolicy.RETAIN

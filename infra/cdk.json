@@ -17,12 +17,12 @@
     "environments": {
       "dev": {
         "envName": "dev",
-        "account": "",
+        "account": "960560665933",
         "region": "ap-northeast-2"
       },
       "prod": {
         "envName": "prod",
-        "account": "",
+        "account": "960560665933",
         "region": "ap-northeast-2"
       }
     }
