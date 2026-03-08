@@ -50,6 +50,11 @@ sentiment:
   bedrock_model: "anthropic.claude-3-haiku-20240307-v1:0"
   cache_ttl: 3600            # 감성 점수 캐시 (초)
 
+feature_selection:
+  enabled: true                  # true면 상관관계/분산 기반 피처 선택 적용
+  corr_threshold: 0.90           # 이 값 초과 상관관계 피처 제거
+  variance_threshold: 0.00000001 # near-constant 피처 제거 기준
+
 features:
   use_raw_time_features: false  # true면 hour, day_of_week, month 원본 추가 (과적합 주의)
   timeframes:
