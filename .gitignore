@@ -60,5 +60,5 @@ Thumbs.db
 logs/
 
 # Claude Code
+.claude/
 CLAUDE.md
-skills/
