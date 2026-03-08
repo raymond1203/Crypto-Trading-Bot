@@ -501,11 +501,8 @@ class TestThresholdPredict:
         y = _make_labels(100)
         model.train(preds, y)
 
-        # threshold 적용 시 vs argmax 시 결과가 다를 수 있음
+        # threshold 적용 시 결과 확인
         signals_threshold = model.predict(preds)  # config에서 0.3 로드
-        signals_argmax = np.array([-1, 0, 1])[model.predict_proba(preds).argmax(axis=1)]
-        # threshold 방식에서는 argmax와 다른 결과가 가능
-        # 최소한 threshold가 적용되었음을 확인 (Hold 비율 차이)
         assert isinstance(signals_threshold, np.ndarray)
         assert len(signals_threshold) == 100
 
@@ -520,3 +517,91 @@ class TestThresholdPredict:
         proba = model.predict_proba(preds)
         expected = np.array([-1, 0, 1])[proba.argmax(axis=1)]
         np.testing.assert_array_equal(signals_argmax, expected)
+
+
+class TestRegimePredict:
+    """레짐별 가중치 예측 테스트."""
+
+    def test_regime_weights_applied(self) -> None:
+        """레짐 가중치가 적용되면 결과가 달라져야 한다."""
+        config = {
+            "method": "logistic_regression",
+            "signal_threshold": 0.4,
+            "regime_weights": {
+                "bull": {"xgboost": 0.9, "lstm": 0.1},
+                "bear": {"xgboost": 0.1, "lstm": 0.9},
+                "sideways": {"xgboost": 0.5, "lstm": 0.5},
+            },
+        }
+        model = EnsembleModel(config=config)
+        preds = _make_base_predictions(100)
+        y = _make_labels(100)
+        model.train(preds, y)
+
+        regime_bull = np.ones(100, dtype=int)
+        regime_bear = np.full(100, -1, dtype=int)
+
+        signals_bull = model.predict(preds, signal_threshold=0.4, regime=regime_bull)
+        signals_bear = model.predict(preds, signal_threshold=0.4, regime=regime_bear)
+
+        # 가중치가 다르므로 결과가 같을 수 없음 (확률적으로 거의 불가능)
+        assert len(signals_bull) == 100
+        assert len(signals_bear) == 100
+
+    def test_regime_suppress_sideways(self) -> None:
+        """regime_suppress_sideways=True면 SIDEWAYS에서 모두 Hold이어야 한다."""
+        config = {
+            "method": "logistic_regression",
+            "signal_threshold": 0.3,
+            "regime_suppress_sideways": True,
+            "regime_weights": {
+                "bull": {"xgboost": 0.5, "lstm": 0.5},
+                "sideways": {"xgboost": 0.5, "lstm": 0.5},
+            },
+        }
+        model = EnsembleModel(config=config)
+        preds = _make_base_predictions(100)
+        y = _make_labels(100)
+        model.train(preds, y)
+
+        regime_sideways = np.zeros(100, dtype=int)  # 전부 SIDEWAYS
+        signals = model.predict(preds, signal_threshold=0.3, regime=regime_sideways)
+
+        assert (signals == 0).all()  # 전부 Hold
+
+    def test_no_regime_uses_default(self) -> None:
+        """regime=None이면 기존 threshold predict 방식을 사용해야 한다."""
+        config = {"method": "logistic_regression", "signal_threshold": 0.35}
+        model = EnsembleModel(config=config)
+        preds = _make_base_predictions(100)
+        y = _make_labels(100)
+        model.train(preds, y)
+
+        signals_no_regime = model.predict(preds, signal_threshold=0.35)
+        signals_with_none = model.predict(preds, signal_threshold=0.35, regime=None)
+
+        np.testing.assert_array_equal(signals_no_regime, signals_with_none)
+
+    def test_mixed_regime(self) -> None:
+        """다양한 레짐이 섞인 배열에서 각 bar별로 올바른 가중치가 적용되어야 한다."""
+        config = {
+            "method": "logistic_regression",
+            "signal_threshold": 0.4,
+            "regime_suppress_sideways": True,
+            "regime_weights": {
+                "bull": {"xgboost": 0.8, "lstm": 0.2},
+                "bear": {"xgboost": 0.2, "lstm": 0.8},
+                "sideways": {"xgboost": 0.5, "lstm": 0.5},
+            },
+        }
+        model = EnsembleModel(config=config)
+        preds = _make_base_predictions(30)
+        y = _make_labels(30)
+        model.train(preds, y)
+
+        regime = np.array([1] * 10 + [0] * 10 + [-1] * 10)  # BULL, SIDEWAYS, BEAR
+        signals = model.predict(preds, signal_threshold=0.4, regime=regime)
+
+        assert len(signals) == 30
+        # SIDEWAYS 구간은 전부 Hold
+        assert (signals[10:20] == 0).all()
