@@ -151,13 +151,25 @@ class TestCustomFeatures:
 class TestTimeFeatures:
     """add_time_features 테스트."""
 
-    def test_adds_time_columns(self, sample_ohlcv: pd.DataFrame) -> None:
-        """시간 관련 컬럼이 추가되어야 한다."""
+    def test_default_no_raw_time(self, sample_ohlcv: pd.DataFrame) -> None:
+        """기본값은 raw 시간 피처를 생성하지 않아야 한다."""
         df = add_time_features(sample_ohlcv)
+        assert "hour" not in df.columns
+        assert "day_of_week" not in df.columns
+        assert "month" not in df.columns
+        # sin/cos는 생성되어야 함
+        assert "hour_sin" in df.columns
+        assert "hour_cos" in df.columns
+        assert "dow_sin" in df.columns
+        assert "dow_cos" in df.columns
+
+    def test_use_raw_adds_raw_columns(self, sample_ohlcv: pd.DataFrame) -> None:
+        """use_raw=True면 raw 시간 피처도 추가되어야 한다."""
+        df = add_time_features(sample_ohlcv, use_raw=True)
         assert "hour" in df.columns
         assert "day_of_week" in df.columns
+        assert "month" in df.columns
         assert "hour_sin" in df.columns
-        assert "dow_cos" in df.columns
 
     def test_sin_cos_range(self, sample_ohlcv: pd.DataFrame) -> None:
         """sin/cos 값은 -1~1 범위여야 한다."""
