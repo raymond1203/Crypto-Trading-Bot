@@ -373,3 +373,72 @@ class TestBenchmarkComparison:
         result = engine.run(sample_ohlcv, signals)
         expected = result.metrics["strategy_return"] - result.metrics["buy_hold_return"]
         assert result.metrics["excess_return"] == pytest.approx(expected, abs=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# close_raw 우선 사용
+# ---------------------------------------------------------------------------
+
+
+class TestCloseRawUsage:
+    """close_raw 컬럼이 있으면 원본 가격을 사용하는 테스트."""
+
+    def test_uses_close_raw_when_available(self, zero_cost_engine: BacktestEngine) -> None:
+        """close_raw가 있으면 close_raw로 시뮬레이션해야 한다."""
+        dates = pd.date_range("2024-01-01", periods=5, freq="1h", tz="UTC")
+        df = pd.DataFrame(
+            {
+                "open": [0.1, 0.1, 0.2, 0.2, 0.2],
+                "high": [0.15, 0.15, 0.25, 0.25, 0.25],
+                "low": [0.05, 0.05, 0.15, 0.15, 0.15],
+                "close": [0.1, 0.1, 0.2, 0.2, 0.2],  # 스케일링된 값
+                "volume": [1000.0] * 5,
+                "close_raw": [100.0, 100.0, 200.0, 200.0, 200.0],  # 원본 가격
+            },
+            index=dates,
+        )
+        signals = np.array([0, 1, 0, -1, 0])
+        result = zero_cost_engine.run(df, signals)
+        # close_raw 기준: 100에 매수 → 200에 매도 → +100% 수익
+        assert result.trades.iloc[0]["pnl"] == pytest.approx(1.0, abs=0.01)
+
+    def test_falls_back_to_close(self, zero_cost_engine: BacktestEngine) -> None:
+        """close_raw가 없으면 close를 사용해야 한다."""
+        dates = pd.date_range("2024-01-01", periods=5, freq="1h", tz="UTC")
+        df = pd.DataFrame(
+            {
+                "open": [100.0, 100.0, 110.0, 110.0, 110.0],
+                "high": [105.0, 105.0, 115.0, 115.0, 115.0],
+                "low": [95.0, 95.0, 105.0, 105.0, 105.0],
+                "close": [100.0, 100.0, 110.0, 110.0, 110.0],
+                "volume": [1000.0] * 5,
+            },
+            index=dates,
+        )
+        signals = np.array([0, 1, 0, -1, 0])
+        result = zero_cost_engine.run(df, signals)
+        assert result.trades.iloc[0]["pnl"] == pytest.approx(0.1, abs=0.01)
+
+    def test_scaled_prices_produce_wrong_equity(self) -> None:
+        """스케일링된 가격으로 시뮬레이션하면 비현실적 결과가 나온다 (회귀 방지)."""
+        dates = pd.date_range("2024-01-01", periods=10, freq="1h", tz="UTC")
+        # 스케일링된 close: -0.5 ~ 0.5 범위 (StandardScaler 결과)
+        scaled_close = np.linspace(-0.5, 0.5, 10)
+        df = pd.DataFrame(
+            {
+                "open": scaled_close,
+                "high": scaled_close + 0.1,
+                "low": scaled_close - 0.1,
+                "close": scaled_close,
+                "volume": [1000.0] * 10,
+                "close_raw": np.linspace(40000, 45000, 10),  # 원본 가격
+            },
+            index=dates,
+        )
+        signals = np.zeros(10, dtype=int)
+        signals[1] = 1
+        signals[7] = -1
+        engine = BacktestEngine(config={"commission": 0.0, "slippage": 0.0, "position_size": 1.0})
+        result = engine.run(df, signals)
+        # close_raw 사용 시 최종 자본은 합리적 범위 (>$5000)
+        assert result.equity_curve.iloc[-1] > 5000.0
