@@ -7,6 +7,7 @@ import pytest
 from src.data.preprocessor import (
     handle_missing_values,
     handle_outliers,
+    run_pipeline,
     scale_features,
     split_timeseries,
 )
@@ -156,3 +157,62 @@ class TestSplitTimeseries:
         assert len(train) == 70
         assert len(val) == 15
         assert len(test) == 15
+
+
+class TestRunPipelineRawOhlcv:
+    """run_pipeline의 원본 OHLCV 보존 테스트."""
+
+    @pytest.fixture
+    def ohlcv_parquet(self, tmp_path: object) -> str:
+        """테스트용 OHLCV Parquet 파일을 생성한다."""
+        np.random.seed(42)
+        n = 300
+        dates = pd.date_range("2024-01-01", periods=n, freq="1h", tz="UTC")
+        base = 40000.0
+        close = base + np.cumsum(np.random.randn(n) * 100)
+        df = pd.DataFrame(
+            {
+                "open": close - np.abs(np.random.randn(n) * 20),
+                "high": close + np.abs(np.random.randn(n) * 50),
+                "low": close - np.abs(np.random.randn(n) * 50),
+                "close": close,
+                "volume": np.random.uniform(100, 1000, n),
+            },
+            index=dates,
+        )
+        path = tmp_path / "test_ohlcv.parquet"  # type: ignore[operator]
+        df.to_parquet(path)
+        return str(path)
+
+    def test_raw_columns_exist(self, ohlcv_parquet: str, tmp_path: object) -> None:
+        """run_pipeline 결과에 close_raw 등 원본 컬럼이 존재해야 한다."""
+        result = run_pipeline(ohlcv_parquet, output_dir=tmp_path / "out")  # type: ignore[operator]
+        for split_name in ("train", "val", "test"):
+            df = result[split_name]
+            assert "close_raw" in df.columns, f"{split_name}에 close_raw 없음"
+            assert "open_raw" in df.columns, f"{split_name}에 open_raw 없음"
+            assert "volume_raw" in df.columns, f"{split_name}에 volume_raw 없음"
+
+    def test_raw_columns_not_scaled(self, ohlcv_parquet: str, tmp_path: object) -> None:
+        """close_raw는 스케일링되지 않고 원본 가격 범위를 유지해야 한다."""
+        result = run_pipeline(ohlcv_parquet, output_dir=tmp_path / "out")  # type: ignore[operator]
+        for split_name in ("train", "val", "test"):
+            df = result[split_name]
+            # 원본 가격은 ~40000 범위여야 한다
+            assert df["close_raw"].mean() > 1000.0, f"{split_name} close_raw가 스케일링됨"
+            # 스케일링된 close는 평균 ~0이어야 한다
+            assert abs(df["close"].mean()) < 100.0, f"{split_name} close가 스케일링 안 됨"
+
+    def test_raw_matches_original(self, ohlcv_parquet: str, tmp_path: object) -> None:
+        """close_raw와 스케일링 전 close가 동일해야 한다."""
+        original = pd.read_parquet(ohlcv_parquet)
+        result = run_pipeline(ohlcv_parquet, output_dir=tmp_path / "out")  # type: ignore[operator]
+        # train의 close_raw는 원본 close와 같아야 한다 (피처 생성 후 결측치 제거 영향은 있음)
+        train = result["train"]
+        common_idx = train.index.intersection(original.index)
+        if len(common_idx) > 0:
+            np.testing.assert_array_almost_equal(
+                train.loc[common_idx, "close_raw"].values,
+                original.loc[common_idx, "close"].values,
+                decimal=2,
+            )
