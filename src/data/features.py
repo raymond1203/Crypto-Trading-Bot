@@ -1,12 +1,14 @@
 """기술적 지표 피처 엔지니어링 모듈.
 
-OHLCV 원본 데이터에서 트렌드, 모멘텀, 변동성, 거래량, 커스텀, 시간 피처를 생성한다.
+OHLCV 원본 데이터에서 트렌드, 모멘텀, 변동성, 거래량, 커스텀, 시간, 레짐 피처를 생성한다.
 """
 
 import numpy as np
 import pandas as pd
 import ta
 from loguru import logger
+
+from src.strategy.regime import add_regime_features
 
 
 def add_trend_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -255,6 +257,8 @@ def build_features(
     df: pd.DataFrame,
     *,
     use_raw_time: bool = False,
+    use_regime: bool = True,
+    regime_config: dict | None = None,
     apply_selection: bool = False,
     corr_threshold: float = 0.90,
 ) -> pd.DataFrame:
@@ -263,6 +267,8 @@ def build_features(
     Args:
         df: OHLCV DataFrame.
         use_raw_time: True면 raw 시간 피처(hour, day_of_week, month)도 추가.
+        use_regime: True면 마켓 레짐 피처(regime, one-hot) 추가.
+        regime_config: 레짐 감지 파라미터 (None이면 기본값 사용).
         apply_selection: True면 상관관계/분산 기반 피처 선택 적용.
         corr_threshold: 상관관계 필터링 임계값.
 
@@ -279,6 +285,9 @@ def build_features(
     df = add_time_features(df, use_raw=use_raw_time)
 
     df = df.dropna()
+
+    if use_regime:
+        df = add_regime_features(df, config=regime_config)
 
     if apply_selection:
         df, _ = select_features(df, corr_threshold=corr_threshold)
