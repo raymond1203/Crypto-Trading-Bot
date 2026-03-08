@@ -107,12 +107,12 @@ class TestTimeSeriesDataset:
         assert y.shape == ()
 
     def test_target_alignment(self) -> None:
-        """타겟이 시퀀스 다음 시점의 값이어야 한다."""
+        """타겟이 시퀀스 마지막 시점의 값이어야 한다."""
         features = np.ones((20, 3))
         targets = np.arange(20)
         ds = TimeSeriesDataset(features, targets, seq_length=5)
         _, y = ds[0]
-        assert y.item() == 5  # idx=0, seq_length=5 → target[5]
+        assert y.item() == 4  # idx=0, seq_length=5 → target[4] (윈도우 마지막 시점)
 
 
 class TestLSTMPredictor:
