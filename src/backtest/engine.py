@@ -369,7 +369,8 @@ def run_backtest_cli() -> None:
 
     # RiskManager 적용
     risk_manager = RiskManager(config_path=args.config)
-    trading_config = yaml.safe_load(open(args.config))
+    with open(args.config) as f:
+        trading_config = yaml.safe_load(f)
     initial_capital = trading_config.get("backtest", {}).get("initial_capital", 10000.0)
     signals = risk_manager.process_signals(df_aligned, signals, initial_capital=initial_capital)
     logger.info("리스크 관리 적용 완료")
