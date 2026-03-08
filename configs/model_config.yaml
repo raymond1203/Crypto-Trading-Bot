@@ -51,6 +51,7 @@ sentiment:
   cache_ttl: 3600            # 감성 점수 캐시 (초)
 
 features:
+  use_raw_time_features: false  # true면 hour, day_of_week, month 원본 추가 (과적합 주의)
   timeframes:
     - "1h"                   # 주 타임프레임
   indicators:

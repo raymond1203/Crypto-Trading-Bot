@@ -175,33 +175,44 @@ def add_custom_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def add_time_features(df: pd.DataFrame) -> pd.DataFrame:
+def add_time_features(df: pd.DataFrame, *, use_raw: bool = False) -> pd.DataFrame:
     """시간 관련 피처를 추가한다.
+
+    sin/cos 인코딩만 사용하여 주기성을 표현한다.
+    Raw 시간 피처(hour, day_of_week, month)는 XGBoost에서 과적합을 유발하므로
+    기본적으로 비활성화한다.
 
     Args:
         df: timestamp 인덱스의 DataFrame.
+        use_raw: True면 raw 시간 피처(hour, day_of_week, month)도 추가.
 
     Returns:
         시간 피처가 추가된 DataFrame.
     """
-    df["hour"] = df.index.hour
-    df["day_of_week"] = df.index.dayofweek
-    df["month"] = df.index.month
+    if use_raw:
+        df["hour"] = df.index.hour
+        df["day_of_week"] = df.index.dayofweek
+        df["month"] = df.index.month
 
     # 사인/코사인 인코딩 (주기성 반영)
-    df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24)
-    df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24)
-    df["dow_sin"] = np.sin(2 * np.pi * df["day_of_week"] / 7)
-    df["dow_cos"] = np.cos(2 * np.pi * df["day_of_week"] / 7)
+    df["hour_sin"] = np.sin(2 * np.pi * df.index.hour / 24)
+    df["hour_cos"] = np.cos(2 * np.pi * df.index.hour / 24)
+    df["dow_sin"] = np.sin(2 * np.pi * df.index.dayofweek / 7)
+    df["dow_cos"] = np.cos(2 * np.pi * df.index.dayofweek / 7)
 
     return df
 
 
-def build_features(df: pd.DataFrame) -> pd.DataFrame:
+def build_features(
+    df: pd.DataFrame,
+    *,
+    use_raw_time: bool = False,
+) -> pd.DataFrame:
     """전체 피처 엔지니어링 파이프라인을 실행한다.
 
     Args:
         df: OHLCV DataFrame.
+        use_raw_time: True면 raw 시간 피처(hour, day_of_week, month)도 추가.
 
     Returns:
         모든 피처가 추가된 DataFrame (NaN 행 제거됨).
@@ -213,7 +224,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df = add_volatility_features(df)
     df = add_volume_features(df)
     df = add_custom_features(df)
-    df = add_time_features(df)
+    df = add_time_features(df, use_raw=use_raw_time)
 
     df = df.dropna()
     feature_count = len(df.columns) - 5  # OHLCV 5개 제외
