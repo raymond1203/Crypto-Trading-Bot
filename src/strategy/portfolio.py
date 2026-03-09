@@ -73,6 +73,7 @@ class PortfolioManager:
         self,
         mode: Literal["local", "dynamodb"] = "local",
         table_prefix: str = "cryptosentinel",
+        env_name: str = "dev",
         region: str = "ap-northeast-2",
     ) -> None:
         """포지션 관리자를 초기화한다.
@@ -80,6 +81,7 @@ class PortfolioManager:
         Args:
             mode: 저장 모드.
             table_prefix: DynamoDB 테이블 이름 접두사.
+            env_name: 환경 이름 (dev/prod). CDK 테이블 이름과 매칭.
             region: AWS 리전 (DynamoDB 모드 시).
         """
         self.mode = mode
@@ -91,11 +93,11 @@ class PortfolioManager:
             self._bot_state: dict[str, str] = {}
         else:
             dynamodb = boto3.resource("dynamodb", region_name=region)
-            self._positions_table = dynamodb.Table(f"{table_prefix}-positions")
-            self._trades_table = dynamodb.Table(f"{table_prefix}-trades")
-            self._bot_state_table = dynamodb.Table(f"{table_prefix}-bot-state")
+            self._positions_table = dynamodb.Table(f"{table_prefix}-positions-{env_name}")
+            self._trades_table = dynamodb.Table(f"{table_prefix}-trades-{env_name}")
+            self._bot_state_table = dynamodb.Table(f"{table_prefix}-bot-state-{env_name}")
 
-        logger.info(f"PortfolioManager 초기화: mode={mode}, prefix={table_prefix}")
+        logger.info(f"PortfolioManager 초기화: mode={mode}, prefix={table_prefix}, env={env_name}")
 
     def open_position(
         self,
