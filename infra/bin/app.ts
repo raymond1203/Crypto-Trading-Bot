@@ -2,6 +2,7 @@
 import "source-map-support/register";
 import * as cdk from "aws-cdk-lib";
 import { CommonStack } from "../lib/common-stack";
+import { DataStack } from "../lib/data-stack";
 import { EcrStack } from "../lib/ecr-stack";
 
 const app = new cdk.App();
@@ -17,7 +18,7 @@ const awsEnv: cdk.Environment = {
   region: config.region || process.env.CDK_DEFAULT_REGION,
 };
 
-new CommonStack(app, `CryptoSentinel-Common-${envName}`, {
+const common = new CommonStack(app, `CryptoSentinel-Common-${envName}`, {
   envName,
   env: awsEnv,
   description: `CryptoSentinel 공통 리소스 (${envName})`,
@@ -27,4 +28,12 @@ new EcrStack(app, `CryptoSentinel-ECR-${envName}`, {
   envName,
   env: awsEnv,
   description: `CryptoSentinel ECR 리포지토리 (${envName})`,
+});
+
+new DataStack(app, `CryptoSentinel-Data-${envName}`, {
+  envName,
+  dataBucket: common.dataBucket,
+  tradingSecret: common.tradingSecret,
+  env: awsEnv,
+  description: `CryptoSentinel 데이터 수집 파이프라인 (${envName})`,
 });
