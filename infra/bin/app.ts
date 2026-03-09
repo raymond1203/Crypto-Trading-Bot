@@ -4,6 +4,7 @@ import * as cdk from "aws-cdk-lib";
 import { CommonStack } from "../lib/common-stack";
 import { DataStack } from "../lib/data-stack";
 import { EcrStack } from "../lib/ecr-stack";
+import { TradingStack } from "../lib/trading-stack";
 
 const app = new cdk.App();
 
@@ -36,4 +37,10 @@ new DataStack(app, `CryptoSentinel-Data-${envName}`, {
   tradingSecret: common.tradingSecret,
   env: awsEnv,
   description: `CryptoSentinel 데이터 수집 파이프라인 (${envName})`,
+});
+
+new TradingStack(app, `CryptoSentinel-Trading-${envName}`, {
+  envName,
+  env: awsEnv,
+  description: `CryptoSentinel 트레이딩 엔진 (${envName})`,
 });
