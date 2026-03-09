@@ -25,7 +25,7 @@ const common = new CommonStack(app, `CryptoSentinel-Common-${envName}`, {
   description: `CryptoSentinel 공통 리소스 (${envName})`,
 });
 
-new EcrStack(app, `CryptoSentinel-ECR-${envName}`, {
+const ecr = new EcrStack(app, `CryptoSentinel-ECR-${envName}`, {
   envName,
   env: awsEnv,
   description: `CryptoSentinel ECR 리포지토리 (${envName})`,
@@ -41,6 +41,10 @@ new DataStack(app, `CryptoSentinel-Data-${envName}`, {
 
 new TradingStack(app, `CryptoSentinel-Trading-${envName}`, {
   envName,
+  dataBucket: common.dataBucket,
+  modelBucket: common.modelBucket,
+  tradingSecret: common.tradingSecret,
+  inferenceRepo: ecr.inferenceRepo,
   env: awsEnv,
   description: `CryptoSentinel 트레이딩 엔진 (${envName})`,
 });
